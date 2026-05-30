@@ -44,10 +44,12 @@ def is_done(folder: Path) -> bool:
     return (folder / COMPLETION_MARKER).exists()
 
 
-def process_one(folder: Path, size: float, depth: float, do_envmap: bool) -> None:
+def process_one(folder: Path, size: float, depth: float, do_envmap: bool,
+                pti: bool = False, pti_epochs: int = 300, pti_lr: float = 3e-4) -> None:
     gen_targets_from_capture(folder, size=size, depth=depth)
     optim_ganlatent(
-        folder / "optim_latent_256.json", 256, 0.02, [1000, 10, 10], tex_init="auto"
+        folder / "optim_latent_256.json", 256, 0.02, [1000, 10, 10], tex_init="auto",
+        pti=pti, pti_epochs=pti_epochs, pti_lr=pti_lr,
     )
     optim_perpixel(
         folder / "optim_pixel_256_to_512.json", 512, 0.01, 20, tex_init="textures"
@@ -69,6 +71,12 @@ def main() -> int:
                         help="Distance between marker plane and material plane in cm (default: 0.1).")
     parser.add_argument("--envmap", action="store_true",
                         help="Also render the environment-map relighting GIF for each object.")
+    parser.add_argument("--pti", action="store_true",
+                        help="Fine-tune the generator per surface after latent optimization (Pivotal Tuning).")
+    parser.add_argument("--pti-epochs", type=int, default=300,
+                        help="Number of PTI fine-tuning steps (default: 300).")
+    parser.add_argument("--pti-lr", type=float, default=3e-4,
+                        help="PTI learning rate; keep small to avoid overfitting (default: 3e-4).")
     parser.add_argument("--log", type=Path, default=None,
                         help="Optional path to write a JSON status log.")
     parser.add_argument("--limit", type=int, default=None,
@@ -95,7 +103,8 @@ def main() -> int:
         print(f"Note: {len(skipped_no_raw)} folder(s) skipped (no raw/ images): {skipped_no_raw[:10]}{'...' if len(skipped_no_raw) > 10 else ''}")
 
     print(f"Found {len(folders)} folder(s) to consider under {args.data_root}")
-    print(f"Params: size={args.size} cm, depth={args.depth} cm, envmap={args.envmap}")
+    print(f"Params: size={args.size} cm, depth={args.depth} cm, envmap={args.envmap}, "
+          f"pti={args.pti} (epochs={args.pti_epochs}, lr={args.pti_lr})")
     print()
 
     results = []
@@ -114,7 +123,8 @@ def main() -> int:
             continue
 
         try:
-            process_one(folder, args.size, args.depth, args.envmap)
+            process_one(folder, args.size, args.depth, args.envmap,
+                        args.pti, args.pti_epochs, args.pti_lr)
             elapsed = time.time() - t0
             print(f"  -> OK ({elapsed:.1f}s)")
             results.append({"folder": folder.name, "status": "ok", "elapsed_s": round(elapsed, 1)})

@@ -172,6 +172,70 @@ class MaterialGANOptim(Optim):
         self.loss = loss.item()
         self.loss_image = loss_image.item()
 
+    def tune_generator(self, epochs, lr, svbrdf_obj):
+        """Pivotal Tuning Inversion (PTI), Roich et al. 2021.
+
+        Run this AFTER optim() has found a good latent ("the pivot"). Here we
+        freeze that latent + noise and instead fine-tune the StyleGAN2 generator
+        weights so G(w*) matches the target more closely. This lets the model
+        reach out-of-distribution materials (e.g. highly specular metals) that
+        the frozen prior cannot represent with a latent alone.
+        """
+        tmp_name = str(datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
+        tmp_dir = svbrdf_obj.optimize_dir / "tmp_pti" / tmp_name
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        # freeze the pivot: latent + noise are no longer optimized
+        self.latent.requires_grad_(False)
+        for n in globalvar.noises:
+            n.requires_grad_(False)
+
+        # unfreeze the generator's synthesis weights (these become the variables)
+        gen_params = list(self.net_obj.net.synthesis.parameters())
+        for p in gen_params:
+            p.requires_grad_(True)
+
+        self.optimizer = th.optim.Adam(gen_params, lr=lr, betas=(0.9, 0.999))
+
+        loss_image_list = []
+        loss_feature_list = []
+        pbar = tqdm.trange(epochs)
+        for epoch in pbar:
+            textures = self.latent_to_textures(self.latent)
+            rendereds = self.renderer_obj.eval(textures)
+
+            loss = 0
+            loss_image = self.compute_image_loss(rendereds)
+            loss_image_list.append(loss_image.item())
+            loss += loss_image
+
+            loss_feature = self.compute_feature_loss(rendereds, "L") * 0.1
+            loss_feature_list.append(loss_feature.item())
+            loss += loss_feature
+
+            pbar.set_postfix({"PTI Loss": loss.item()})
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            # save process
+            if (epoch + 1) % 100 == 0 or epoch == 0 or epoch == (epochs - 1):
+                tmp_this_dir = tmp_dir / f"{epoch + 1}"
+                tmp_this_dir.mkdir(parents=True, exist_ok=True)
+
+                self.save_loss([loss_image_list, loss_feature_list], ["image loss", "feature loss"], tmp_dir / "loss.jpg", epochs)
+
+                textures = self.latent_to_textures(self.latent)
+                svbrdf_obj.save_textures_th(textures, tmp_this_dir)
+
+                rendereds = self.renderer_obj.eval(textures)
+                svbrdf_obj.save_images_th(rendereds, tmp_this_dir)
+
+        self.textures = self.latent_to_textures(self.latent)
+        self.loss = loss.item()
+        self.loss_image = loss_image.item()
+
     def _download_checkpoint(self, ckp_path, url):
         """Download the checkpoint if it doesn't exist."""
         # Create directory if it doesn't exist

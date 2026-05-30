@@ -97,9 +97,11 @@ def optim_perpixel(json_dir, res, lr, epochs, tex_init, optim_light=False):
     svbrdf_obj.save_images_th(rendereds, svbrdf_obj.rerender_dir)
 
 
-def optim_ganlatent(json_dir, res, lr, epochs, tex_init, optim_light=False):
+def optim_ganlatent(json_dir, res, lr, epochs, tex_init, optim_light=False, pti=False, pti_epochs=300, pti_lr=3e-4):
     # epochs: list of 3 int. [0] is total epochs, [1] is epochs for latent, [2] is for noise, in each cycle.
     # tex_init: string. [], [PATH_TO_LATENT.pt], or [PATH_TO_LATENT.pt, PATH_TO_NOISE.pt]
+    # pti: if True, run Pivotal Tuning (fine-tune the generator weights) after latent optimization.
+    # pti_epochs / pti_lr: steps and learning rate for the PTI stage. Keep pti_lr small to avoid overfitting.
 
     device = th.device("cuda:0" if th.cuda.is_available() else "cpu")
     # device = th.device("cpu")
@@ -129,6 +131,10 @@ def optim_ganlatent(json_dir, res, lr, epochs, tex_init, optim_light=False):
         optim_obj.init_from(tex_init)
     
     optim_obj.optim(epochs, lr, svbrdf_obj, optim_light)
+
+    if pti:
+        # Pivotal Tuning: latent above is the pivot; now fine-tune the generator to it.
+        optim_obj.tune_generator(pti_epochs, pti_lr, svbrdf_obj)
 
     svbrdf_obj.save_textures_th(optim_obj.textures, svbrdf_obj.optimize_dir)
 
