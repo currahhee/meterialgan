@@ -66,7 +66,7 @@ class VGGLoss(th.nn.Module):
         # im: N x C x H x W
         transform = Normalize(
             mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.255]
+            std=[0.229, 0.224, 0.225]
         )
         im_norm = im.clone()
         for i in range(im.shape[0]):

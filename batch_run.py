@@ -83,6 +83,8 @@ def main() -> int:
                         help="Process at most this many folders (debugging).")
     parser.add_argument("--only", type=str, default=None,
                         help="Comma-separated folder names to process (debugging).")
+    parser.add_argument("--force", action="store_true",
+                        help="Reprocess folders even if already complete (e.g. to redo finished folders with PTI).")
     args = parser.parse_args()
 
     if not args.data_root.is_dir():
@@ -117,7 +119,7 @@ def main() -> int:
         print(header)
         print("=" * len(header))
 
-        if is_done(folder):
+        if is_done(folder) and not args.force:
             print("  -> already complete (found optim_latent/1024/dif.png), skipping")
             results.append({"folder": folder.name, "status": "skipped", "elapsed_s": 0.0})
             continue
